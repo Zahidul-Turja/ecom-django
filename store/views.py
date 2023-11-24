@@ -1,6 +1,8 @@
-import json
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+import datetime
 
 from .models import *
 
@@ -18,7 +20,8 @@ def store(request):
         items = []
         order = {
             "get_cart_total": 0,
-            "get_cart_item": 0
+            "get_cart_item": 0,
+            "shipping": False,
         }
         cartItems = order["get_cart_item"]
 
@@ -40,7 +43,8 @@ def cart(request):
     else:
         order = {
             "get_cart_total": 0,
-            "get_cart_item": 0
+            "get_cart_item": 0,
+            "shipping": False,
         }
         items = []
         cartItems = order["get_cart_item"]
@@ -63,7 +67,8 @@ def checkout(request):
     else:
         order = {
             "get_cart_total": 0,
-            "get_cart_item": 0
+            "get_cart_item": 0,
+            "shipping": False,
         }
         items = []
         cartItems = order["get_cart_item"]
@@ -99,3 +104,33 @@ def updateItem(request):
         orderItem.delete()
 
     return JsonResponse("Item added", safe=False)
+
+
+# @csrf_exempt
+def processOrder(request):
+    transaction_id = datetime.datetime.now().timestamp()
+    data = json.loads(request.body)
+
+    if request.user.is_authenticated:
+        customer = request.user.customer
+        order, created = Order.objects.get_or_create(
+            customer=customer, complete=False)
+        total = float(data["form"]["total"])
+        order.transaction_id = transaction_id  # type: ignore
+
+        if total == order.get_cart_total:
+            order.complete = True
+        order.save()
+
+        if order.shipping:
+            ShippingAddress.objects.create(
+                customer=customer,
+                order=order,
+                address=data["shipping"]["address"],
+                city=data["shipping"]["city"],
+                state=data["shipping"]["state"],
+                zipcode=data["shipping"]["zipcode"],
+            )
+    else:
+        print("User not logged in")
+    return JsonResponse("Payment Complete", safe=False)
