@@ -5,25 +5,14 @@ import json
 import datetime
 
 from .models import *
+from .utils import cookieCart, cartData, guestOrder
 
 # Create your views here.
 
 
 def store(request):
-    if request.user.is_authenticated:
-        customer = request.user.customer
-        order, created = Order.objects.get_or_create(
-            customer=customer, complete=False)
-        items = order.orderitem_set.all()  # type: ignore
-        cartItems = order.get_cart_items
-    else:
-        items = []
-        order = {
-            "get_cart_total": 0,
-            "get_cart_item": 0,
-            "shipping": False,
-        }
-        cartItems = order["get_cart_item"]
+    data = cartData(request)
+    cartItems = data["cartItems"]
 
     products = Product.objects.all()
     context = {
@@ -34,46 +23,10 @@ def store(request):
 
 
 def cart(request):
-    if request.user.is_authenticated:
-        customer = request.user.customer
-        order, created = Order.objects.get_or_create(
-            customer=customer, complete=False)
-        items = order.orderitem_set.all()  # type: ignore
-        cartItems = order.get_cart_items
-    else:
-        try:
-            cart = json.loads(request.COOKIES["cart"])
-        except:
-            cart = {}
-        print("cart", cart)
-        order = {
-            "get_cart_total": 0,
-            "get_cart_item": 0,
-            "shipping": False,
-        }
-        items = []
-        cartItems = order["get_cart_item"]
-
-        for i in cart:
-            cartItems += cart[i]["quantity"]
-
-            product = Product.objects.get(id=i)
-            total = (product.price * cart[i]["quantity"])
-
-            order["get_cart_total"] += total
-            order["get_cart_item"] += cart[i]["quantity"]
-
-            item = {
-                "product": {
-                    "id": product.id,  # type: ignore
-                    "name": product.name,
-                    "price": product.price,
-                    "image": product.image
-                },
-                "quantity": cart[i]["quantity"],
-                "get_total": total,
-            }
-            items.append(item)
+    data = cartData(request)
+    cartItems = data["cartItems"]
+    order = data["order"]
+    items = data["items"]
 
     context = {
         "items": items,
@@ -84,20 +37,10 @@ def cart(request):
 
 
 def checkout(request):
-    if request.user.is_authenticated:
-        customer = request.user.customer
-        order, created = Order.objects.get_or_create(
-            customer=customer, complete=False)
-        items = order.orderitem_set.all()  # type: ignore
-        cartItems = order.get_cart_items
-    else:
-        order = {
-            "get_cart_total": 0,
-            "get_cart_item": 0,
-            "shipping": False,
-        }
-        items = []
-        cartItems = order["get_cart_item"]
+    data = cartData(request)
+    cartItems = data["cartItems"]
+    order = data["order"]
+    items = data["items"]
 
     context = {
         "items": items,
@@ -141,22 +84,24 @@ def processOrder(request):
         customer = request.user.customer
         order, created = Order.objects.get_or_create(
             customer=customer, complete=False)
-        total = float(data["form"]["total"])
-        order.transaction_id = transaction_id  # type: ignore
-
-        if total == order.get_cart_total:
-            order.complete = True
-        order.save()
-
-        if order.shipping:
-            ShippingAddress.objects.create(
-                customer=customer,
-                order=order,
-                address=data["shipping"]["address"],
-                city=data["shipping"]["city"],
-                state=data["shipping"]["state"],
-                zipcode=data["shipping"]["zipcode"],
-            )
     else:
-        print("User not logged in")
+        customer, order = guestOrder(request, data)
+
+    total = float(data["form"]["total"])
+    order.transaction_id = transaction_id  # type: ignore
+
+    if total == order.get_cart_total:
+        order.complete = True
+    order.save()
+
+    if order.shipping:
+        ShippingAddress.objects.create(
+            customer=customer,
+            order=order,
+            address=data["shipping"]["address"],
+            city=data["shipping"]["city"],
+            state=data["shipping"]["state"],
+            zipcode=data["shipping"]["zipcode"],
+        )
+
     return JsonResponse("Payment Complete", safe=False)
